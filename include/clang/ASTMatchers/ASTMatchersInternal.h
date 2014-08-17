@@ -35,6 +35,7 @@
 #ifndef LLVM_CLANG_ASTMATCHERS_ASTMATCHERSINTERNAL_H
 #define LLVM_CLANG_ASTMATCHERS_ASTMATCHERSINTERNAL_H
 
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTTypeTraits.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
@@ -542,7 +543,8 @@ template <typename T> struct has_getDecl {
 template <typename T, typename ArgT>
 class HasOverloadedOperatorNameMatcher : public SingleNodeMatcherInterface<T> {
   static_assert(std::is_same<T, CXXOperatorCallExpr>::value ||
-                std::is_base_of<FunctionDecl, T>::value,
+                std::is_base_of<FunctionDecl, T>::value ||
+                std::is_same<T, NamedDecl>::value,
                 "unsupported class for matcher");
   static_assert(std::is_same<ArgT, StringRef>::value,
                 "argument type must be StringRef");
@@ -569,6 +571,11 @@ private:
   bool matchesSpecialized(const FunctionDecl &Node) const {
     return Node.isOverloadedOperator() &&
            getOperatorSpelling(Node.getOverloadedOperator()) == Name;
+  }
+
+  bool matchesSpecialized(const NamedDecl &Node) const {
+    return isa<CXXMethodDecl>(Node) && cast<CXXMethodDecl>(Node).isOverloadedOperator() &&
+           getOperatorSpelling(cast<CXXMethodDecl>(Node).getOverloadedOperator()) == Name;
   }
 
   std::string Name;
@@ -655,6 +662,13 @@ private:
   bool matchesSpecialized(const CallExpr &Node, ASTMatchFinder *Finder,
                           BoundNodesTreeBuilder *Builder) const {
     return matchesDecl(Node.getCalleeDecl(), Finder, Builder);
+  }
+
+  /// \brief Extracts the Decl of the callee of a CallExpr and returns whether
+  /// the inner matcher matches on it.
+  bool matchesSpecialized(const ObjCMessageExpr &Node, ASTMatchFinder *Finder,
+                          BoundNodesTreeBuilder *Builder) const {
+    return matchesDecl(Node.getMethodDecl(), Finder, Builder);
   }
 
   /// \brief Extracts the Decl of the constructor call and returns whether the
@@ -905,7 +919,7 @@ AdaptativeDefaultToTypes;
 /// \brief All types that are supported by HasDeclarationMatcher above.
 typedef TypeList<TypeList<CallExpr, CXXConstructExpr, DeclRefExpr, EnumType>,
                  TypeList<InjectedClassNameType, LabelStmt, MemberExpr>,
-                 TypeList<QualType, RecordType, TagType>,
+                 TypeList<QualType, RecordType, TagType, ObjCMessageExpr>,
                  TypeList<TemplateSpecializationType, TemplateTypeParmType,
                           TypedefType, UnresolvedUsingType> >
 HasDeclarationSupportedTypes;

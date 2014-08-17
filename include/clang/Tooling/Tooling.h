@@ -152,9 +152,11 @@ bool runToolOnCode(clang::FrontendAction *ToolAction, const Twine &Code,
 /// \param FileName The file name which 'Code' will be mapped as.
 ///
 /// \return - True if 'ToolAction' was successfully executed.
-bool runToolOnCodeWithArgs(clang::FrontendAction *ToolAction, const Twine &Code,
-                           const std::vector<std::string> &Args,
-                           const Twine &FileName = "input.cc");
+bool runToolOnCodeWithArgs(
+    clang::FrontendAction *ToolAction, const Twine &Code,
+    const std::vector<std::string> &Args, const Twine &FileName = "input.cc",
+    const std::vector<std::pair<std::string, std::string>> &VirtualMappedFiles =
+        std::vector<std::pair<std::string, std::string>>());
 
 /// \brief Builds an AST for 'Code'.
 ///

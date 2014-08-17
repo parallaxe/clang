@@ -242,7 +242,10 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isExpr);
   REGISTER_MATCHER(isExternC);
   REGISTER_MATCHER(isImplicit);
+  REGISTER_MATCHER(isInFileMatchingName);
+  REGISTER_MATCHER(isInMainFile);
   REGISTER_MATCHER(isInstantiated);
+  REGISTER_MATCHER(isInSystemHeader);
   REGISTER_MATCHER(isInteger);
   REGISTER_MATCHER(isIntegral);
   REGISTER_MATCHER(isInTemplateInstantiation);
@@ -273,6 +276,41 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(newExpr);
   REGISTER_MATCHER(nullPtrLiteralExpr);
   REGISTER_MATCHER(nullStmt);
+  REGISTER_MATCHER(objcBlock);
+  REGISTER_MATCHER(objcPropertyImpl);
+  REGISTER_MATCHER(objcCompatibleAlias);
+  REGISTER_MATCHER(objcContainer);
+  REGISTER_MATCHER(objcMethod);
+  REGISTER_MATCHER(objcProperty);
+  REGISTER_MATCHER(objCCategory);
+  REGISTER_MATCHER(objCImpl);
+  REGISTER_MATCHER(objcInterface);
+  REGISTER_MATCHER(objCProtocol);
+  REGISTER_MATCHER(objCCategoryImpl);
+  REGISTER_MATCHER(objcImplementation);
+  REGISTER_MATCHER(objcAtDefsField);
+  REGISTER_MATCHER(objcIvar);
+  REGISTER_MATCHER(objcAtCatch);
+  REGISTER_MATCHER(objcAtFinally);
+  REGISTER_MATCHER(objcAtSynchronized);
+  REGISTER_MATCHER(objcAtThrow);
+  REGISTER_MATCHER(objcAtTry);
+  REGISTER_MATCHER(objcAutoreleasePool);
+  REGISTER_MATCHER(objcForCollection);
+  REGISTER_MATCHER(objcArrayLiteral);
+  REGISTER_MATCHER(objcBoolLiteral);
+  REGISTER_MATCHER(objcBoxed);
+  REGISTER_MATCHER(objcDictionaryLiteral);
+  REGISTER_MATCHER(objcEncode);
+  REGISTER_MATCHER(objcIndirectCopyRestore);
+  REGISTER_MATCHER(objcIsa);
+  REGISTER_MATCHER(objcIvarRef);
+  REGISTER_MATCHER(objcMessage);
+  REGISTER_MATCHER(objcPropertyRef);
+  REGISTER_MATCHER(objcProtocolExpr);
+  REGISTER_MATCHER(objcSelector);
+  REGISTER_MATCHER(objcStringLiteral);
+  REGISTER_MATCHER(objcSubscriptRef);
   REGISTER_MATCHER(ofClass);
   REGISTER_MATCHER(on);
   REGISTER_MATCHER(onImplicitObjectArgument);
@@ -314,6 +352,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(to);
   REGISTER_MATCHER(tryStmt);
   REGISTER_MATCHER(type);
+  REGISTER_MATCHER(typedefDecl);
   REGISTER_MATCHER(typedefType);
   REGISTER_MATCHER(typeLoc);
   REGISTER_MATCHER(unaryExprOrTypeTraitExpr);
@@ -330,7 +369,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(whileStmt);
   REGISTER_MATCHER(withInitializer);
 }
-
+  
 RegistryMaps::~RegistryMaps() {
   for (ConstructorMap::iterator it = Constructors.begin(),
                                 end = Constructors.end();

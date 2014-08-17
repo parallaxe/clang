@@ -2159,6 +2159,7 @@ void StmtPrinter::VisitBlockExpr(BlockExpr *Node) {
     }
     OS << ')';
   }
+  //  PrintStmt(BD->clang::Decl::getBody());
   OS << "{ }";
 }
 

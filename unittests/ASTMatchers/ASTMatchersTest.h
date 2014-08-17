@@ -58,10 +58,11 @@ private:
 };
 
 template <typename T>
-testing::AssertionResult matchesConditionally(const std::string &Code,
-                                              const T &AMatcher,
-                                              bool ExpectMatch,
-                                              llvm::StringRef CompileArg) {
+testing::AssertionResult
+matchesConditionally(const std::string &Code, const T &AMatcher,
+                     bool ExpectMatch, llvm::StringRef CompileArg,
+                     const std::vector<std::pair<std::string, std::string>> &
+                         VirtualMappedFiles = {}) {
   bool Found = false, DynamicFound = false;
   MatchFinder Finder;
   VerifyMatch VerifyFound(nullptr, &Found);
@@ -73,7 +74,8 @@ testing::AssertionResult matchesConditionally(const std::string &Code,
       newFrontendActionFactory(&Finder));
   // Some tests use typeof, which is a gnu extension.
   std::vector<std::string> Args(1, CompileArg);
-  if (!runToolOnCodeWithArgs(Factory->create(), Code, Args)) {
+  if (!runToolOnCodeWithArgs(Factory->create(), Code, Args, "input.cc",
+                             VirtualMappedFiles)) {
     return testing::AssertionFailure() << "Parsing error in \"" << Code << "\"";
   }
   if (Found != DynamicFound) {
@@ -101,6 +103,18 @@ template <typename T>
 testing::AssertionResult notMatches(const std::string &Code,
                                     const T &AMatcher) {
   return matchesConditionally(Code, AMatcher, false, "-std=c++11");
+}
+    
+template <typename T>
+testing::AssertionResult matchesObjC(const std::string &Code,
+                                     const T &AMatcher) {
+  return matchesConditionally(Code, AMatcher, true, "-xobjective-c");
+}
+
+template <typename T>
+testing::AssertionResult notMatchesObjC(const std::string &Code,
+                                        const T &AMatcher) {
+  return matchesConditionally(Code, AMatcher, false, "-xobjective-c");
 }
 
 // Function based on matchesConditionally with "-x cuda" argument added and

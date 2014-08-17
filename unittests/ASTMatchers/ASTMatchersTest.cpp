@@ -340,6 +340,9 @@ TEST(DeclarationMatcher, hasMethod) {
                       recordDecl(hasMethod(hasName("func")))));
   EXPECT_TRUE(notMatches("class A { void func(); };",
                          recordDecl(hasMethod(isPublic()))));
+  
+//  EXPECT_TRUE(matches("@interface A; -(void)a; @end",
+//                      objcInterface(hasMethod(hasName("a")))));
 }
 
 TEST(DeclarationMatcher, ClassDerivedFromDependentTemplateSpecialization) {
@@ -1440,6 +1443,12 @@ TEST(Matcher, Argument) {
       matches("class X { void x(int) { int y; x(y); } };", CallArgumentY));
   EXPECT_TRUE(notMatches("void x(int) { int z; x(z); }", CallArgumentY));
 
+  StatementMatcher CallArgumentYObjC =
+      objcMessage(hasArgument(0, declRefExpr(to(varDecl(hasName("y"))))));
+  EXPECT_TRUE(matchesObjC(
+      "@implementation X; -(void)x:(int)param { int y; [self x:y]; }; @end",
+      CallArgumentYObjC));
+
   StatementMatcher WrongIndex = callExpr(
       hasArgument(42, declRefExpr(to(varDecl(hasName("y"))))));
   EXPECT_TRUE(notMatches("void x(int) { int y; x(y); }", WrongIndex));
@@ -1459,6 +1468,15 @@ TEST(Matcher, ArgumentCount) {
   EXPECT_TRUE(matches("void x(int) { x(0); }", Call1Arg));
   EXPECT_TRUE(matches("class X { void x(int) { x(0); } };", Call1Arg));
   EXPECT_TRUE(notMatches("void x(int, int) { x(0, 0); }", Call1Arg));
+
+    
+  StatementMatcher Call1ArgObjC = objcMessage(argumentCountIs(1));
+  EXPECT_TRUE(matchesObjC(
+      "@implementation X; -(void)x:(int)param { int y; [self x:y]; }; @end",
+      Call1ArgObjC));
+  EXPECT_TRUE(notMatchesObjC("@implementation X; -(void)x:(int)param1 "
+                             "y:(int)param2 { int y; [self x:y y:y]; }; @end",
+                             Call1ArgObjC));
 }
 
 TEST(Matcher, ParameterCount) {
@@ -1467,6 +1485,15 @@ TEST(Matcher, ParameterCount) {
   EXPECT_TRUE(matches("class X { void f(int i) {} };", Function1Arg));
   EXPECT_TRUE(notMatches("void f() {}", Function1Arg));
   EXPECT_TRUE(notMatches("void f(int i, int j, int k) {}", Function1Arg));
+
+  DeclarationMatcher Function1ArgObjC = objcMethod(parameterCountIs(1));
+  EXPECT_TRUE(matchesObjC("@implementation X; -(void)x:(int)p { }; @end",
+                          Function1ArgObjC));
+  EXPECT_TRUE(notMatchesObjC("@implementation X; -(void)x { [self x]; }; @end",
+                             Function1ArgObjC));
+  EXPECT_TRUE(notMatchesObjC(
+                             "@implementation X; -(void)x:(int)p y:(int)y { }; @end",
+                             Function1ArgObjC));
 }
 
 TEST(Matcher, References) {
@@ -2425,6 +2452,12 @@ TEST(Matcher, IsDefinition) {
       methodDecl(hasName("a"), isDefinition());
   EXPECT_TRUE(matches("class A { void a() {} };", DefinitionOfMethodA));
   EXPECT_TRUE(notMatches("class A { void a(); };", DefinitionOfMethodA));
+    
+    DeclarationMatcher DefinitionOfObjCMethodA =
+    objcMethod(hasName("a"), isDefinition());
+  EXPECT_TRUE(matchesObjC("@implementation A; -(void)a {}; @end", DefinitionOfObjCMethodA));
+  EXPECT_TRUE(notMatchesObjC("@protocol A -(void)a; @end", DefinitionOfObjCMethodA));
+  EXPECT_TRUE(notMatchesObjC("@interface A; -(void)a; @end; @implementation A; @end", DefinitionOfObjCMethodA));
 }
 
 TEST(Matcher, OfClass) {
@@ -4595,6 +4628,46 @@ TEST(EqualsBoundNodeMatcher, UnlessDescendantsOfAncestorsMatch) {
               callee(methodDecl(anyOf(hasName("size"), hasName("length")))),
               on(declRefExpr(to(varDecl(equalsBoundNode("var")))))))))))
           .bind("data")));
+}
+
+TEST(TypeDefDeclMatcher, Match) {
+  EXPECT_TRUE(matches("typedef int typedefDeclTest;",
+                      typedefDecl(hasName("typedefDeclTest"))));
+}
+
+TEST(Matcher, IsInMainFileMatcher) {
+  EXPECT_TRUE(matches(
+      "class X {};", recordDecl(hasName("X"), isInMainFile())));
+  EXPECT_TRUE(notMatches("", recordDecl(isInMainFile())));
+  EXPECT_TRUE(matchesConditionally("#include <other>\n",
+                                   recordDecl(isInMainFile()), false,
+                                   "-isystem/", {{"/other", "class X {};"}}));
+}
+
+TEST(Matcher, IsInSystemHeaderMatcher) {
+  EXPECT_TRUE(matchesConditionally("#include \"other\"\n",
+                                   recordDecl(isInSystemHeader()), true,
+                                   "-isystem/", {{"/other", "class X {};"}}));
+  EXPECT_TRUE(matchesConditionally("#include \"other\"\n",
+                                   recordDecl(isInSystemHeader()), false, "-I/",
+                                   {{"/other", "class X {};"}}));
+  EXPECT_TRUE(notMatches("class X {};", recordDecl(isInSystemHeader())));
+  EXPECT_TRUE(notMatches("", recordDecl(isInSystemHeader())));
+}
+
+TEST(Matcher, IsInFileMatchingName) {
+  EXPECT_TRUE(matchesConditionally(
+      "#include <foo>\n"
+      "#include <bar>\n"
+      "class X {};",
+      recordDecl(isInFileMatchingName("b.*"), hasName("B")), true, "-isystem/",
+      {{"/foo", "class A {};"}, {"/bar", "class B {};"}}));
+  EXPECT_TRUE(matchesConditionally(
+      "#include <foo>\n"
+      "#include <bar>\n"
+      "class X {};",
+      recordDecl(isInFileMatchingName("f.*"), hasName("X")), false, "-isystem/",
+      {{"/foo", "class A {};"}, {"/bar", "class B {};"}}));
 }
 
 } // end namespace ast_matchers

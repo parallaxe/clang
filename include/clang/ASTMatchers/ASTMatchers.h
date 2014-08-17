@@ -47,6 +47,9 @@
 
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/StmtObjC.h"
+#include "clang/AST/ExprObjC.h"
+#include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchersInternal.h"
 #include "clang/ASTMatchers/ASTMatchersMacros.h"
 #include "llvm/ADT/Twine.h"
@@ -141,6 +144,95 @@ typedef internal::Matcher<NestedNameSpecifierLoc> NestedNameSpecifierLocMatcher;
 ///
 /// Usable as: Any Matcher
 inline internal::TrueMatcher anything() { return internal::TrueMatcher(); }
+
+/// \brief Matches typedef declarations.
+///
+/// Given
+/// \code
+///   typedef int X;
+/// \endcode
+/// typedefDecl()
+///   matches "typedef int X"
+const internal::VariadicDynCastAllOfMatcher<Decl, TypedefDecl> typedefDecl;
+
+/// \brief Matches AST nodes that were expanded within the main-file
+///
+/// Example matches X but not Y (matcher = recordDecl(isInMainFile())
+/// \code
+///   #include <Y.h>
+///   class X {};
+/// \endcode
+/// Y.h:
+/// \code
+///   class Y {};
+/// \endcode
+///
+/// Usable as: Matcher<Decl>, Matcher<Stmt>, Matcher<TypeLoc>
+AST_POLYMORPHIC_MATCHER(isInMainFile,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES_3(Decl, Stmt,
+                                                          TypeLoc)) {
+  auto &SourceManager = Finder->getASTContext().getSourceManager();
+  return SourceManager.isInMainFile(
+      SourceManager.getExpansionLoc(Node.getLocStart()));
+}
+
+/// \brief Matches AST nodes that were expanded within system-header-files
+///
+/// Example matches Y but not X (matcher = recordDecl(isInSytemHeader())
+/// \code
+///   #include <SystemHeader.h>
+///   class X {};
+/// \endcode
+/// SystemHeader.h:
+/// \code
+///   class Y {};
+/// \endcode
+///
+/// Usable as: Matcher<Decl>, Matcher<Stmt>, Matcher<TypeLoc>
+AST_POLYMORPHIC_MATCHER(isInSystemHeader,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES_3(Decl, Stmt,
+                                                          TypeLoc)) {
+  auto &SourceManager = Finder->getASTContext().getSourceManager();
+  auto ExpansionLoc = SourceManager.getExpansionLoc(Node.getLocStart());
+  if (ExpansionLoc.isInvalid()) {
+    return false;
+  }
+  return SourceManager.isInSystemHeader(ExpansionLoc);
+}
+
+/// \brief Matches AST nodes that were expanded within files whose name is
+/// partially matching a given regex
+///
+/// Example matches Y but not X (matcher = recordDecl(isInFileMatchingName("AST.*"))
+/// \code
+///   #include "ASTMatcher.h"
+///   class X {};
+/// \endcode
+/// ASTMatcher.h:
+/// \code
+///   class Y {};
+/// \endcode
+///
+/// Usable as: Matcher<Decl>, Matcher<Stmt>, Matcher<TypeLoc>
+AST_POLYMORPHIC_MATCHER_P(isInFileMatchingName,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_3(Decl, Stmt,
+                                                            TypeLoc),
+                          std::string, RegExp) {
+  auto &SourceManager = Finder->getASTContext().getSourceManager();
+  auto ExpansionLoc = SourceManager.getExpansionLoc(Node.getLocStart());
+  if (ExpansionLoc.isInvalid()) {
+    return false;
+  }
+  auto FileEntry =
+      SourceManager.getFileEntryForID(SourceManager.getFileID(ExpansionLoc));
+  if (!FileEntry) {
+    return false;
+  }
+
+  auto Filename = FileEntry->getName();
+  llvm::Regex RE(RegExp);
+  return RE.match(Filename);
+}
 
 /// \brief Matches declarations.
 ///
@@ -643,7 +735,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///   class X { void y(); };
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<Decl, CXXMethodDecl> methodDecl;
-
+  
 /// \brief Matches variable declarations.
 ///
 /// Note: this does not match declarations of member variables, which are
@@ -1635,14 +1727,14 @@ AST_MATCHER_P(NamedDecl, matchesName, std::string, RegExp) {
 /// line and \c recordDecl(hasMethod(hasOverloadedOperatorName("*"))) matches
 /// the declaration of \c A.
 ///
-/// Usable as: Matcher<CXXOperatorCallExpr>, Matcher<FunctionDecl>
+/// Usable as: Matcher<CXXOperatorCallExpr>, Matcher<FunctionDecl>, Matcher<NamedDecl>
 inline internal::PolymorphicMatcherWithParam1<
     internal::HasOverloadedOperatorNameMatcher, StringRef,
-    AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, FunctionDecl)>
+    AST_POLYMORPHIC_SUPPORTED_TYPES_3(CXXOperatorCallExpr, FunctionDecl, NamedDecl)>
 hasOverloadedOperatorName(StringRef Name) {
   return internal::PolymorphicMatcherWithParam1<
       internal::HasOverloadedOperatorNameMatcher, StringRef,
-      AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, FunctionDecl)>(
+      AST_POLYMORPHIC_SUPPORTED_TYPES_3(CXXOperatorCallExpr, FunctionDecl, NamedDecl)>(
       Name);
 }
 
@@ -1867,7 +1959,7 @@ const internal::VariadicOperatorMatcherFunc<1, 1> unless = {
 /// Usable as: Matcher<CallExpr>, Matcher<CXXConstructExpr>,
 ///   Matcher<DeclRefExpr>, Matcher<EnumType>, Matcher<InjectedClassNameType>,
 ///   Matcher<LabelStmt>, Matcher<MemberExpr>, Matcher<QualType>,
-///   Matcher<RecordType>, Matcher<TagType>,
+///   Matcher<RecordType>, Matcher<TagType>, Matcher<ObjCMessageExpr>,
 ///   Matcher<TemplateSpecializationType>, Matcher<TemplateTypeParmType>,
 ///   Matcher<TypedefType>, Matcher<UnresolvedUsingType>
 inline internal::PolymorphicMatcherWithParam1<
@@ -1894,42 +1986,6 @@ AST_MATCHER_P(CXXMemberCallExpr, on, internal::Matcher<Expr>,
                             ->IgnoreParenImpCasts();
   return (ExprNode != nullptr &&
           InnerMatcher.matches(*ExprNode, Finder, Builder));
-}
-
-/// \brief Matches if the call expression's callee expression matches.
-///
-/// Given
-/// \code
-///   class Y { void x() { this->x(); x(); Y y; y.x(); } };
-///   void f() { f(); }
-/// \endcode
-/// callExpr(callee(expr()))
-///   matches this->x(), x(), y.x(), f()
-/// with callee(...)
-///   matching this->x, x, y.x, f respectively
-///
-/// Note: Callee cannot take the more general internal::Matcher<Expr>
-/// because this introduces ambiguous overloads with calls to Callee taking a
-/// internal::Matcher<Decl>, as the matcher hierarchy is purely
-/// implemented in terms of implicit casts.
-AST_MATCHER_P(CallExpr, callee, internal::Matcher<Stmt>,
-              InnerMatcher) {
-  const Expr *ExprNode = Node.getCallee();
-  return (ExprNode != nullptr &&
-          InnerMatcher.matches(*ExprNode, Finder, Builder));
-}
-
-/// \brief Matches if the call expression's callee's declaration matches the
-/// given matcher.
-///
-/// Example matches y.x() (matcher = callExpr(callee(methodDecl(hasName("x")))))
-/// \code
-///   class Y { public: void x(); };
-///   void z() { Y y; y.x(); }
-/// \endcode
-AST_MATCHER_P_OVERLOAD(CallExpr, callee, internal::Matcher<Decl>, InnerMatcher,
-                       1) {
-  return callExpr(hasDeclaration(InnerMatcher)).matches(Node, Finder, Builder);
 }
 
 /// \brief Matches if the expression's or declaration's type matches a type
@@ -2197,13 +2253,16 @@ AST_MATCHER(VarDecl, hasGlobalStorage) {
 /// \brief Checks that a call expression or a constructor call expression has
 /// a specific number of arguments (including absent default arguments).
 ///
-/// Example matches f(0, 0) (matcher = callExpr(argumentCountIs(2)))
+/// Example matches
+///         f(0, 0) (matcher = callExpr(argumentCountIs(2)))
+///     and [self x:y] (matcher = objcMessage(argumentCountIs(1)))
 /// \code
 ///   void f(int x, int y);
 ///   f(0, 0);
+///   @implementation X; -(void)x:(int)param { int y; [self x:y]; }; @end
 /// \endcode
-AST_POLYMORPHIC_MATCHER_P(argumentCountIs, AST_POLYMORPHIC_SUPPORTED_TYPES_2(
-                                               CallExpr, CXXConstructExpr),
+AST_POLYMORPHIC_MATCHER_P(argumentCountIs, AST_POLYMORPHIC_SUPPORTED_TYPES_3(
+                                               CallExpr, CXXConstructExpr, ObjCMessageExpr),
                           unsigned, N) {
   return Node.getNumArgs() == N;
 }
@@ -2211,14 +2270,19 @@ AST_POLYMORPHIC_MATCHER_P(argumentCountIs, AST_POLYMORPHIC_SUPPORTED_TYPES_2(
 /// \brief Matches the n'th argument of a call expression or a constructor
 /// call expression.
 ///
-/// Example matches y in x(y)
-///     (matcher = callExpr(hasArgument(0, declRefExpr())))
+/// Example matches
+///       y in x(y) (matcher = callExpr(hasArgument(0, declRefExpr())))
+///   and y in [self x:y] (matcher = objcMessage(
+///                                      hasArgument(0,
+///                                          declRefExpr(to(varDecl(hasName("y")))))))
+///
 /// \code
 ///   void x(int) { int y; x(y); }
+///   @implementation X; -(void)x:(int)param { int y; [self x:y]; }; @end
 /// \endcode
 AST_POLYMORPHIC_MATCHER_P2(
     hasArgument,
-    AST_POLYMORPHIC_SUPPORTED_TYPES_2(CallExpr, CXXConstructExpr),
+    AST_POLYMORPHIC_SUPPORTED_TYPES_3(CallExpr, CXXConstructExpr, ObjCMessageExpr),
     unsigned, N, internal::Matcher<Expr>, InnerMatcher) {
   return (N < Node.getNumArgs() &&
           InnerMatcher.matches(
@@ -2359,8 +2423,8 @@ AST_MATCHER(CXXCtorInitializer, isWritten) {
 /// the argument before applying the inner matcher. We'll want to remove
 /// this to allow for greater control by the user once \c ignoreImplicit()
 /// has been implemented.
-AST_POLYMORPHIC_MATCHER_P(hasAnyArgument, AST_POLYMORPHIC_SUPPORTED_TYPES_2(
-                                              CallExpr, CXXConstructExpr),
+AST_POLYMORPHIC_MATCHER_P(hasAnyArgument, AST_POLYMORPHIC_SUPPORTED_TYPES_3(
+                                              CallExpr, CXXConstructExpr, ObjCMessageExpr),
                           internal::Matcher<Expr>, InnerMatcher) {
   for (unsigned I = 0; I < Node.getNumArgs(); ++I) {
     BoundNodesTreeBuilder Result(*Builder);
@@ -2423,10 +2487,19 @@ AST_MATCHER_P(FunctionDecl, hasAnyParameter,
 /// \endcode
 /// functionDecl(parameterCountIs(2))
 ///   matches g(int i, int j) {}
-AST_MATCHER_P(FunctionDecl, parameterCountIs, unsigned, N) {
-  return Node.getNumParams() == N;
+/// \code
+///   void g(int i, int j) {}
+/// \endcode
+/// functionDecl(parameterCountIs(2))
+///   matches g(int i, int j) {}
+AST_POLYMORPHIC_MATCHER_P(parameterCountIs,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_2(FunctionDecl,
+                                                            ObjCMethodDecl),
+                          unsigned, N) {
+  return Node.param_size() == N;
 }
 
+    
 /// \brief Matches the return type of a function declaration.
 ///
 /// Given:
@@ -2789,11 +2862,13 @@ AST_MATCHER_P(ConditionalOperator, hasFalseExpression,
 ///   extern int vb;  // Doesn't match, as it doesn't define the variable.
 ///   void fa() {}
 ///   void fb();  // Doesn't match, as it has no body.
+///   @implementation Foo; -(void)bar {}; @end
+///   @interface Foo; -(void)bar; @end  // Doesn't match, as it has no body.
 /// \endcode
 ///
 /// Usable as: Matcher<TagDecl>, Matcher<VarDecl>, Matcher<FunctionDecl>
-AST_POLYMORPHIC_MATCHER(isDefinition, AST_POLYMORPHIC_SUPPORTED_TYPES_3(
-                                          TagDecl, VarDecl, FunctionDecl)) {
+AST_POLYMORPHIC_MATCHER(isDefinition, AST_POLYMORPHIC_SUPPORTED_TYPES_5(
+                                          TagDecl, VarDecl, FunctionDecl, ObjCMethodDecl, ObjCInterfaceDecl)) {
   return Node.isThisDeclarationADefinition();
 }
 
@@ -3804,6 +3879,386 @@ AST_MATCHER_P(Decl, hasAttr, attr::Kind, AttrKind) {
 const internal::VariadicDynCastAllOfMatcher<Stmt, CUDAKernelCallExpr>
     CUDAKernelCallExpr;
 
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAtCatchStmt> objcAtCatch;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAtFinallyStmt>
+objcAtFinally;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAtSynchronizedStmt>
+objcAtSynchronized;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAtThrowStmt> objcAtThrow;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAtTryStmt> objcAtTry;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCAutoreleasePoolStmt>
+objcAutoreleasePool;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCForCollectionStmt>
+objcForCollection;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCArrayLiteral>
+objcArrayLiteral;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCBoolLiteralExpr>
+objcBoolLiteral;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCBoxedExpr> objcBoxed;
+
+/// \brief Matches
+    ///
+/// Example matches @YES, @4 and @(4)
+/// \code
+///    @YES
+///    @4
+///    @(4)
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCDictionaryLiteral>
+objcDictionaryLiteral;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCEncodeExpr> objcEncode;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCIndirectCopyRestoreExpr>
+objcIndirectCopyRestore;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCIsaExpr> objcIsa;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCIvarRefExpr> objcIvarRef;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCMessageExpr> objcMessage;
+
+/// \brief Matches
+    ///
+/// Example matches [obj call], array[0] and self.property
+/// \code
+///   [obj call]
+///   array[0]
+///   self.property
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCPropertyRefExpr>
+objcPropertyRef;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCProtocolExpr>
+objcProtocolExpr;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCSelectorExpr>
+objcSelector;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCStringLiteral>
+objcStringLiteral;
+
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Stmt, ObjCSubscriptRefExpr>
+objcSubscriptRef;
+
+/// \brief Matches
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, BlockDecl> objcBlock;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCPropertyImplDecl>
+objcPropertyImpl;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCCompatibleAliasDecl>
+objcCompatibleAlias;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCContainerDecl>
+objcContainer;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCMethodDecl> objcMethod;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCPropertyDecl>
+objcProperty;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCCategoryDecl>
+objCCategory;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCImplDecl> objCImpl;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCInterfaceDecl>
+objcInterface;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCProtocolDecl>
+objCProtocol;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCCategoryImplDecl>
+objCCategoryImpl;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCImplementationDecl>
+objcImplementation;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCAtDefsFieldDecl>
+objcAtDefsField;
+/// \brief Matches
+    ///
+/// Example matches
+/// \code
+///
+///
+/// \encode
+const internal::VariadicDynCastAllOfMatcher<Decl, ObjCIvarDecl> objcIvar;
+  
+  /// \brief Matches if the call expression's callee expression matches.
+  ///
+  /// Given
+  /// \code
+  ///   class Y { void x() { this->x(); x(); Y y; y.x(); } };
+  ///   void f() { f(); }
+  /// \endcode
+  /// callExpr(callee(expr()))
+  ///   matches this->x(), x(), y.x(), f()
+  /// with callee(...)
+  ///   matching this->x, x, y.x, f respectively
+  ///
+  /// Note: Callee cannot take the more general internal::Matcher<Expr>
+  /// because this introduces ambiguous overloads with calls to Callee taking a
+  /// internal::Matcher<Decl>, as the matcher hierarchy is purely
+  /// implemented in terms of implicit casts.
+#warning special check before commit
+  AST_MATCHER_P(Expr, callee, internal::Matcher<Stmt>,
+                InnerMatcher) {
+    const Expr *ExprNode= nullptr;
+    if(const CallExpr *CallExprNode= dyn_cast<CallExpr>(&Node)) {
+      ExprNode = CallExprNode->getCallee();
+    } else if(const ObjCMessageExpr *ObjCCallExprNode= dyn_cast<ObjCMessageExpr>(&Node)) {
+      switch(ObjCCallExprNode->getReceiverKind()) {
+        case ObjCMessageExpr::SuperInstance:
+          // fallthrough
+        case ObjCMessageExpr::Instance:
+          ExprNode = ObjCCallExprNode->getInstanceReceiver();
+          break;
+        case ObjCMessageExpr::Class:
+          // fallthrough
+        case ObjCMessageExpr::SuperClass:
+          // leave ExprNode set to nullptr
+          break;
+      }
+    }
+    return (ExprNode != nullptr &&
+            InnerMatcher.matches(*ExprNode, Finder, Builder));
+  }
+  
+  /// \brief Matches if the call expression's callee's declaration matches the
+  /// given matcher.
+  ///
+  /// Example matches y.x() (matcher = callExpr(callee(methodDecl(hasName("x")))))
+  /// \code
+  ///   class Y { public: void x(); };
+  ///   void z() { Y y; y.x(); }
+  /// \endcode
+  AST_MATCHER_P_OVERLOAD(Expr, callee, internal::Matcher<Decl>, InnerMatcher,
+                         1) {
+    return callExpr(hasDeclaration(InnerMatcher)).matches(Node, Finder, Builder) ||
+    objcMessage(hasDeclaration(InnerMatcher)).matches(Node, Finder, Builder);
+  }
+  
 } // end namespace ast_matchers
 } // end namespace clang
 
